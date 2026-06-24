@@ -155,7 +155,6 @@ Persona 是本项目的重点，区别于其它 agent 框架。
 - **file read/write**：作用域限 persona 自己的工作区；尝试修改框架数据时返回"操作禁止"（拦截在 P1 实现，配置文件可改）
 - **schedule**：设定"何时在本 session 推送某条消息"，存入 session sqlite 的 `schedules` 表；归档的 session 不执行计划
 
-## 文档
+## 参考文档
 
-- [PLAN.md](./PLAN.md) — 开发计划与里程碑（含未来事项）
-- [AGENT.md](./AGENT.md) — 构建与开发约定（给协作者/AI 助手）
+- [PLAN.md](./PLAN.md)

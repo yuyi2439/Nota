@@ -1,18 +1,17 @@
 # PLAN.md
 
 > Nota 开发计划。P0 为本次实现，P1 为近未来，P2 为远未来。
-> 所有运行时数据与配置统一放在 `~/.nota/` 下（不随运行目录变化）。
 
 ## P0 — 本次实现（搭框架 + 核心功能）
 
 ### M0 项目骨架
-- [ ] 初始化 package.json（ESM、type: module）
-- [ ] 配置 tsconfig.json
-- [ ] 安装依赖：openai、better-sqlite3、ink、react、commander、@iarna/toml 等
-- [ ] 安装开发依赖：tsx、tsup、vitest、typescript、@types/*
-- [ ] 建立源码目录结构（src/core/*, src/tui, src/cli）
-- [ ] 运行时目录约定：`~/.nota/`（sessions/personas/plugins/config.toml），程序启动时自动创建
-- [ ] `npm run dev` / `npm run build` / `npm test` 脚本
+- [x] 初始化 package.json（ESM、type: module）
+- [x] 配置 tsconfig.json
+- [x] 安装依赖：openai、better-sqlite3、ink、react、commander、@iarna/toml 等
+- [x] 安装开发依赖：tsx、tsup、vitest、typescript、@types/*
+- [x] 建立源码目录结构（src/core/*, src/tui, src/cli）
+- [x] 运行时目录约定：`~/.nota/`（sessions/personas/plugins/config.toml），程序启动时自动创建
+- [x] `pnpm dev` / `pnpm build` / `pnpm test` 脚本
 
 ### M1 Core daemon 服务端
 - [ ] HTTP server 监听 127.0.0.1:2349
