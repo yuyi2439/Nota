@@ -10,7 +10,8 @@ export type MessageRole =
   | "user"
   | "assistant"
   | "tool_call"
-  | "tool_result";
+  | "tool_result"
+  | "tool";
 
 export interface Message {
   id: string;

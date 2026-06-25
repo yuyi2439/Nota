@@ -1,137 +1,141 @@
 # PLAN.md
 
-> Nota 开发计划。P0 为本次实现，P1 为近未来，P2 为远未来。
+> Nota 开发计划。
+> **当前目标**：专注实现单一 persona 的可用体验，不再追求完整 agent 框架。
+> 原框架性计划（多 persona、插件、权限分级、workspace 控制）整体移入 P1，暂不实现。
 
-## P0 — 本次实现（搭框架 + 核心功能）
+## P0 — 本次实现（单一 persona 可用）
 
 ### M0 项目骨架
-- [x] 初始化 package.json（ESM、type: module）
-- [x] 配置 tsconfig.json
-- [x] 安装依赖：openai、better-sqlite3、ink、react、commander、@iarna/toml 等
-- [x] 安装开发依赖：tsx、tsup、vitest、typescript、@types/*
-- [x] 建立源码目录结构（src/core/*, src/tui, src/cli）
-- [x] 运行时目录约定：`~/.nota/`（sessions/personas/plugins/config.toml），程序启动时自动创建
-- [x] `pnpm dev` / `pnpm build` / `pnpm test` 脚本
+- [x] 初始化 package.json（ESM、type: module、bin: nota）
+- [x] 配置 tsconfig.json（ES2022，无 DOM）
+- [x] pnpm 安装依赖：openai、better-sqlite3、ink、react、commander、@iarna/toml、ws
+- [x] pnpm 安装开发依赖：tsx、tsup、vitest、typescript、@types/*
+- [x] 建立源码目录结构
+- [x] 运行时目录约定：`~/.nota/`
+- [x] 脚本 dev/build/test/typecheck
+- [x] `src/version.ts`、`src/core/paths.ts`、`src/core/constants.ts`
 
 ### M1 Core daemon 服务端
-- [x] HTTP server 监听 127.0.0.1:2349
-- [x] REST 路由框架（用于session/persona/chat/plugins 管理）
-- [x] WebSocket 服务端（session 订阅与流式推送）
-- [x] SSE 端点（CLI 流式 / 第三方拓展）
-- [x] 系统服务配置（daemon 后台运行）
+- [x] HTTP server 监听 127.0.0.1:2349（仅回环）
+- [x] 自研轻量 REST 路由 `src/core/server/router.ts`
+- [x] WebSocket 服务端（`?session=<id>` 订阅）
+- [x] SSE 端点支持（留第三方拓展）
+- [x] `src/core/server/pubsub.ts`：SubscriptionManager（单订阅约束）+ SSEManager
+- [x] 内置路由 `/health`、`/admin/shutdown`
+- [x] CLI `nota daemon start|stop|status|run`
 
 ### M2 Session Manager
-- [ ] per-session sqlite 文件管理（创建路径 `~/.nota/sessions/<id>.sqlite`）
-- [ ] schema：`meta`、`messages`、`schedules` 表
-    - `meta`：id, creator, participants, created_at, archive_at, archived_at, classification?
-    - `messages`：id, role(assistant|tool_call|tool_result|...), content, tool_calls, tool_call_id, type, created_at
-    - `schedules`：id, trigger_at, content, status
-- [ ] 创建 session：core 内部写 creator（插件 API 不暴露该参数）；participants 可选
-- [ ] 加载 session：按 creator 校验（normal 只能 load 自家；admin+ 放行）
-- [ ] 列出 session（按权限可见范围）
-- [ ] 30 天自动归档 + 启动扫描
-- [ ] archive/restore：移动到 `~/.nota/sessions/archive/`；仅 admin+ 或 creator 可操作
-- [ ] archive 后 session 不活动、计划不执行、不可直连
-- [ ] session 可选分类机制（机制留口子，现仅 archive）
+- [x] per-session sqlite 文件管理 `~/.nota/sessions/<id>.sqlite`
+- [x] schema：`meta`、`messages`、`schedules` 表
+- [x] 创建/加载/列出/归档/恢复
+- [x] 30 天自动归档 + `sweepExpired()` 启动扫描
+- [x] archive 后不活动、计划不执行、不可直连
+- [x] classification 字段留口子（现仅 archive 子目录）
 
-### M3 Participant + Persona
-- [ ] Participant 模型（persona | client，任意数量）
-- [ ] Persona Manager：统一配置 `~/.nota/personas/config.sqlite`
-- [ ] Persona 工作区 `~/.nota/personas/<id>/`（markdown 文件）
-- [ ] 默认 persona `Agent`
-- [ ] main session 配置（在 persona 配置中指定）
-- [ ] persona 只能读写自己工作区内文件，其余禁止
-- [ ] persona 可创建 session、可独立思考（被 session 消息触发或自我触发）
+### M3 Persona（单一 persona）
+- [x] PersonaManager：统一配置 `~/.nota/personas/config.sqlite`
+- [x] Persona 工作区 `~/.nota/personas/<name>/`（name 作目录名，可改名）
+- [x] prompt 存工作区 `.md` 文件，系统自动加载拼接为 system prompt
+- [x] main session 配置（setMainSession）
+- [x] 交互式初始化：首次运行无 persona 时提示用户输入名称并创建
+- [x] 移除默认 "Agent" 自动创建
+- [x] CLI/TUI 不暴露 persona 选择参数，始终用唯一 persona
 
 ### M4 Callback / 订阅模型
-- [ ] `session.set_callback(fn)`：可多次调用更换（一般设一次）
-- [ ] 进程内插件：直接 JS 函数回调
-- [ ] WS 订阅：core 提供 callback，经 WS 推送（流式同路径）
-- [ ] 同一 session 同一时刻只能被一个 participant 订阅
-- [ ] 引用（非 creator）：只读历史，不推送
-- [ ] callback 不持久化，重启由 participant 自行重挂
-
-### M5 权限系统
-- [ ] 三级：master(仅CLI) / admin(默认TUI) / normal(插件默认)
-- [ ] `NotaContext` 带 `level` 字段（非布尔标记）
-- [ ] `ctx.admin` 管理接口，无权限返回错误
-- [ ] session 可见性校验（normal 只见自家；admin+ 直引任意）
-- [ ] archive/restore 权限校验
-
+- [x] AgentRunner 流式回调接入 pubsub（onDelta/onToolResult/onMessage → subscriptions.push）
+- [x] WS 订阅端收到流式 delta 与最终消息
+- [x] HTTP 路由 POST /session/:id/messages 触发 agent
+- [x] 同一 session 同一时刻只能被一个 participant 订阅
+- [x] 引用（非订阅者）：GET /session/:id 只读历史
+- [x] callback 不持久化，重启由 participant 自行重挂
+- [ ] session.set_callback(fn) 进程内绑定接口（插件用，P1 再做）
 ### M6 推理循环（LLM + tool calling）
-- [ ] 加载 session 历史 + persona system prompt + memory（MVP 全部注入 persona 相关文件）
-- [ ] 调 LLM（OpenAI API 格式，可对接兼容端点）
-- [ ] tool calling 循环：LLM 请求 tool → 执行 tool → 结果回灌 → 再调 LLM → 直到产出最终文本
-- [ ] 结果经 session callback 推送（支持流式）
-- [ ] tool 调用/结果存入 messages；广播按权限过滤（admin+ 可见 tool 细节，普通 participant 只见 assistant 文本）
+- [x] 加载 session 历史 + persona system prompt（自动加载工作区 .md 全部注入）
+- [x] LLM 抽象 `ILlmClient`；内置 `LlmClient`（OpenAI API 格式）
+- [x] tool calling 循环（最多 16 轮）
+- [x] 流式 stream（delta + tool_calls 累积 + done）
+- [x] tool 调用/结果存入 messages
 
 ### M7 Tool Registry
-- [ ] 统一管理，不区分来源
-- [ ] 按 plugin.json `tools` 字段主动查找加载（按声明名到 entry 找对应 tool）
-- [ ] 调用约定接口取 description 注册
-- [ ] 同步/异步 tool 支持（异步 tool 回灌触发下一轮）
+- [x] `ToolRegistryImpl` 统一管理
+- [x] tool 带 ToolContext（personaName, sessionId）注入
+- [x] 同步 tool 支持；异步 tool（回灌触发下一轮）→ P1
+- [ ] 按 plugin.json `tools` 字段主动加载 → P1（M9）
 
 ### M8 内置工具
-- [ ] file read/write（作用域限 persona 自己的工作区）
-- [ ] schedule（设定未来在 session 推送消息；存 `schedules` 表；archive 的 session 不执行）
-- [ ] 尝试修改框架数据 → 返回"操作禁止"（拦截逻辑 P1 实现，配置文件可改）
+- [x] file_read / file_write（限 persona 工作区，越界 access denied）
+- [x] schedule（存 `schedules` 表；archive 不执行；调度器 → P1）
+- [x] tool 修改框架数据全局拦截 → P1
+- [x] `registerBuiltinTools(registry, personas, sessions)`
+
+### M10 TUI 客户端（ink）
+- [x] 会话列表 / 新建 / 切换（基础版；`/sessions`、`/switch` 待完善）
+- [x] 消息流（WS 流式显示 delta + assistant_message）
+- [x] 工具输出展示（tool_result 事件）
+- [ ] `/` 指令完整实现（当前仅 /quit /help /clear；/new /sessions /switch /archive /archives /restore /tools 待补）
+- [x] 启动可传 sessionid（`nota tui --session <id>`）
+- [x] WS 订阅连接
+- [x] 始终用唯一 persona（不暴露 persona 选择）
+
+### M11 CLI 客户端（commander）
+- [x] `nota daemon start|stop|status|run`
+- [x] `nota session list|show|archive|restore`
+- [x] `nota chat [--session <id>] [--no-stream]`（无 --persona，用唯一 persona）
+- [x] `nota tui [--session <id>]`
+- [x] 交互式初始化（首次运行建 persona）
+- [ ] `nota plugins *` → P1（M9）
+
+---
+
+## P1 — 近未来（框架性功能，暂不实现）
+
+### 多 persona / 框架化
+- [ ] 多 persona 管理（创建/切换/删除）
+- [ ] persona 可用 tool 子集由 master 控制增删
+- [ ] Persona WorkSpaces 由 master 控制扩展
+- [ ] persona 独立思考 / 主动行动（含 schedule 触发的自我推理 + schedule 调度器）
+- [ ] 异步 tool 回灌触发下一轮 agent loop
+- [ ] 两个 persona 聊天的申请 / 拒绝 / 停止
 
 ### M9 Plugin Loader
-- [ ] 扫描 `plugins/*/plugin.json`
+- [ ] 扫描 `~/.nota/plugins/*/plugin.json`
 - [ ] 注入 NotaContext（带 level）
 - [ ] 生命周期 register → start → stop
 - [ ] daemon 启动默认全量热加载一次
 - [ ] 运行中热重载 `nota plugins reload <plugin>`
+- [ ] 按 plugin.json `tools` 字段主动查找加载
+- [ ] `nota plugins list|tools|reload` CLI 子命令
 
-### M10 TUI 客户端（ink）
-- [ ] 会话列表 / 新建 / 切换
-- [ ] 消息流（流式显示）
-- [ ] 工具输出展示
-- [ ] `/` 指令：`/new` `/sessions` `/switch <id>` `/archive <id>` `/archives` `/restore <id>` `/tools` `/help` `/quit` `/clear`
-- [ ] 启动可传 sessionid
-- [ ] WS 订阅连接
-- [ ] admin 权限（直引任意 session；不暴露插件存在）
+### M5 权限系统
+- [ ] 三级：master(仅CLI) / admin(默认TUI) / normal(插件默认)
+- [ ] `NotaContext` 带 `level` 字段
+- [ ] `ctx.admin` 管理接口
+- [ ] session 可见性校验
+- [ ] archive/restore 权限校验
+- [ ] tool 广播过滤（admin+ 可见 tool 细节，普通 participant 只见 assistant 文本）
 
-### M11 CLI 客户端（commander）
-- [ ] `nota daemon start [--foreground|--background]`
-- [ ] `nota daemon stop`
-- [ ] `nota daemon status`（不靠 PID）
-- [ ] `nota session list`
-- [ ] `nota session show <id>`（引用：读历史）
-- [ ] `nota session archive <id>`
-- [ ] `nota session restore <id>`
-- [ ] `nota chat [--session <id>] [--persona <id>] [--no-stream]`（SSE 默认流式）
-- [ ] `nota plugins list`
-- [ ] `nota plugins tools`
-- [ ] `nota plugins reload <plugin>`
-
----
-
-## P1 — 近未来
-
-- [ ] persona 可用 tool 子集由 master 控制增删
-- [ ] Persona WorkSpaces 由 master 控制扩展
-- [ ] tool 修改框架数据拦截（返回"操作禁止"，配置文件可改）
-- [ ] 外装 tool 需 master 批准才能使用
-- [ ] master 任命 admin（CLI 子命令 `nota grant admin <plugin>`；持久化到 `config.toml`）
-- [ ] master 设置 session 引用关系（存 session 自身 meta 表）
-- [ ] persona 独立思考 / 主动行动（含 schedule 触发的自我推理）
-- [ ] 两个 persona 聊天的申请 / 拒绝 / 停止（当前只能 master 牵线）
+### 其它 P1
+- [ ] 系统服务配置（daemon 开机自启）
+- [ ] tool 修改框架数据全局拦截
+- [ ] 外装 tool 需 master 批准
+- [ ] master 任命 admin（持久化到 `config.toml`）
+- [ ] master 设置 session 引用关系（存 session meta 表）
+- [ ] session.set_callback(fn) 进程内绑定接口
+- [ ] lint 脚本配置
 
 ---
 
 ## P2 — 远未来
 
-- [ ] QQ 插件：独立 sqlite 存原始消息、不创建 session、群消息静默、私信时自检索；通过 NotaContext 与 core 交互
+- [ ] QQ 插件：独立 sqlite 存原始消息、不创建 session、群消息静默、私信时自检索
 - [ ] session 其它分类机制（按 channel 等）
-- [ ] LLM provider 插件接口（抽象 ChatProvider，内置 OpenAI 实现之一）
-- [ ] loopback 鉴权 token（本地启动生成，客户端从固定文件读取附请求头）
+- [ ] LLM provider 插件接口
+- [ ] loopback 鉴权 token
 - [ ] 第三方客户端接入拓展（基于 REST + SSE）
 
 ---
 
 ## 暂不一定实现（P-1）
 
-以下功能不在当前计划中，未来也未必添加：
-
-- **user 级 client**：低于 admin，只能参与 session，不能查看 tool 调用。当前三级（master/admin/normal）已覆盖主要场景，user 级优先级低，留待确认实际需求后再决定。
+- **user 级 client**：低于 admin，只能参与 session，不能查看 tool 调用。留待确认实际需求后再决定。

@@ -124,6 +124,7 @@ export class SessionManager {
           out.push({ ...meta, path, archived });
         } catch {
           // skip unreadable
+          // TODO: Should log this
         }
       }
     }

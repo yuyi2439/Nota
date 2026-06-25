@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { ensureDirs } from "../core/paths.js";
 import { HOST, PORT } from "../core/constants.js";
 import { createNotaServer } from "../core/server/index.js";
+import { createCore } from "../core/index.js";
+import { PersonaManager } from "../core/persona/index.js";
 import { VERSION } from "../version.js";
 
 const program = new Command();
@@ -39,35 +41,167 @@ program
   .description("Manage sessions.")
   .argument("<action>", "list | show | archive | restore")
   .argument("[id]", "session id")
-  .action((action: string, id?: string) => {
+  .action(async (action: string, id?: string) => {
     ensureDirs();
-    console.log(`[session] action=${action} id=${id ?? "-"}`);
-    console.log("[session] not yet implemented (M2).");
+    const base = `http://${HOST}:${PORT}`;
+    try {
+      if (action === "list") {
+        const res = await fetch(`${base}/session`);
+        const data = (await res.json()) as Array<{
+          id: string;
+          creator: string;
+          archived: boolean;
+          created_at: string;
+        }>;
+        if (data.length === 0) {
+          console.log("[session] no sessions");
+          return;
+        }
+        for (const s of data) {
+          const tag = s.archived ? "[archived]" : "[active]";
+          console.log(`${tag} ${s.id}  creator=${s.creator}  ${s.created_at}`);
+        }
+      } else if (action === "show") {
+        if (!id) {
+          console.error("[session] show requires an id");
+          process.exit(1);
+        }
+        const res = await fetch(`${base}/session/${id}`);
+        if (!res.ok) {
+          console.error(`[session] ${res.status} ${await res.text()}`);
+          process.exit(1);
+        }
+        const data = (await res.json()) as {
+          meta: { creator: string; created_at: string };
+          messages: Array<{ role: string; content: string; created_at: string }>;
+        };
+        console.log(`session ${id}  creator=${data.meta.creator}`);
+        for (const m of data.messages) {
+          console.log(`\n[${m.role}] ${m.created_at}`);
+          console.log(m.content);
+        }
+      } else if (action === "archive") {
+        if (!id) {
+          console.error("[session] archive requires an id");
+          process.exit(1);
+        }
+        const res = await fetch(`${base}/session/${id}/archive`, {
+          method: "POST",
+        });
+        if (!res.ok) {
+          console.error(`[session] ${res.status} ${await res.text()}`);
+          process.exit(1);
+        }
+        console.log(`[session] archived ${id}`);
+      } else if (action === "restore") {
+        if (!id) {
+          console.error("[session] restore requires an id");
+          process.exit(1);
+        }
+        const res = await fetch(`${base}/session/${id}/restore`, {
+          method: "POST",
+        });
+        if (!res.ok) {
+          console.error(`[session] ${res.status} ${await res.text()}`);
+          process.exit(1);
+        }
+        console.log(`[session] restored ${id}`);
+      } else {
+        console.error(`[session] unknown action: ${action}`);
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error("[session] error:", err);
+      process.exit(1);
+    }
   });
 
 program
   .command("chat")
-  .description("One-shot chat (SSE streaming by default).")
+  .description("Send one message (streaming via WS).")
   .option("--session <id>", "continue an existing session")
-  .option("--persona <id>", "persona to talk to", "Agent")
   .option("--no-stream", "disable streaming (for scripting)")
-  .action((opts: { session?: string; persona: string; stream: boolean }) => {
+  .action(async (opts: { session?: string; stream: boolean }) => {
     ensureDirs();
-    console.log(
-      `[chat] persona=${opts.persona} session=${opts.session ?? "-"} stream=${opts.stream}`,
-    );
-    console.log("[chat] not yet implemented (M6/M11).");
+    const base = `http://${HOST}:${PORT}`;
+    const wsBase = `ws://${HOST}:${PORT}`;
+    const readline = await import("node:readline/promises");
+    const rl = readline.createInterface({ input: process.stdin, terminal: false });
+    const content = await rl.question("");
+    rl.close();
+    if (!content) {
+      console.error("[chat] no input");
+      process.exit(1);
+    }
+    let sessionId = opts.session;
+    try {
+      if (!sessionId) {
+        const res = await fetch(`${base}/session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ creator: "cli" }),
+        });
+        if (!res.ok) {
+          console.error(`[chat] create session failed: ${res.status} ${await res.text()}`);
+          process.exit(1);
+        }
+        const meta = (await res.json()) as { id: string };
+        sessionId = meta.id;
+        console.error(`[chat] new session ${sessionId}`);
+      }
+      const { WebSocket } = await import("ws");
+      const ws = new WebSocket(`${wsBase}/?session=${sessionId}`);
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        ws.close();
+      };
+      ws.on("open", () => {
+        void fetch(`${base}/session/${sessionId}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content }),
+        }).catch((err) => {
+          console.error("[chat] post message failed:", err);
+          finish();
+        });
+      });
+      ws.on("message", (raw) => {
+        const data = JSON.parse(raw.toString()) as { event: string; data: unknown };
+        if (data.event === "delta" && opts.stream) {
+          const d = data.data as { delta: string };
+          process.stdout.write(d.delta);
+        } else if (data.event === "assistant_message") {
+          if (!opts.stream) {
+            const d = data.data as { message: { content: string } };
+            process.stdout.write(d.message.content);
+          }
+        } else if (data.event === "error") {
+          const d = data.data as { message: string };
+          console.error("[chat] error:", d.message);
+          finish();
+        }
+      });
+      ws.on("close", () => {
+        if (!opts.stream) process.stdout.write("\n");
+        else process.stdout.write("\n");
+        console.error(`[chat] session ${sessionId}`);
+      });
+    } catch (err) {
+      console.error("[chat] error:", err);
+      process.exit(1);
+    }
   });
 
 program
-  .command("plugins")
-  .description("Manage plugins.")
-  .argument("<action>", "list | tools | reload")
-  .argument("[name]", "plugin name (for reload)")
-  .action((action: string, name?: string) => {
+  .command("tui")
+  .description("Start the TUI (ink) interface.")
+  .option("--session <id>", "continue an existing session")
+  .action(async (opts: { session?: string }) => {
     ensureDirs();
-    console.log(`[plugins] action=${action} name=${name ?? "-"}`);
-    console.log("[plugins] not yet implemented (M9).");
+    const { runTui } = await import("../tui/index.js");
+    await runTui({ sessionId: opts.session });
   });
 
 /**
@@ -89,6 +223,9 @@ async function statusDaemon(): Promise<void> {
 
 async function runDaemon(): Promise<void> {
   const server = createNotaServer();
+  const core = createCore(server);
+  await ensurePersonaInitialized();
+  core.attachRoutes();
   server.router.add("POST", "/admin/shutdown", (ctx) => {
     ctx.send(200, { message: "shutting down" });
     setTimeout(() => {
@@ -108,6 +245,27 @@ async function runDaemon(): Promise<void> {
     console.error("[daemon] failed to start:", err);
     process.exit(1);
   }
+}
+
+async function ensurePersonaInitialized(): Promise<void> {
+  const personas = new PersonaManager();
+  if (personas.hasAnyPersona()) {
+    personas.close();
+    return;
+  }
+  const readline = await import("node:readline/promises");
+  const { stdin, stdout } = process;
+  const rl = readline.createInterface({ input: stdin, output: stdout, terminal: true });
+  console.log("Welcome to Nota. Let's create your persona.");
+  const name = (await rl.question("Persona name: ")).trim();
+  rl.close();
+  if (!name) {
+    console.error("[init] persona name cannot be empty");
+    process.exit(1);
+  }
+  personas.create(name);
+  personas.close();
+  console.log(`[init] persona "${name}" created.`);
 }
 
 async function startDaemon(): Promise<void> {
