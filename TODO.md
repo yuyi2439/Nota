@@ -1,0 +1,7 @@
+- [ ] openai库有用？
+- [ ] pubsub.ts 名字不好
+- [ ] 对于SSE和WS的管理还不太对，就是应该直接向SM挂载callback，而不是内部保存session的信息。sessionID只是向SM查找session用的。
+- [ ] SSE也不应该一对多广播
+- [ ] 仔细Review pubsub.ts和server.ts
+- [ ] 现在还不支持web创建session
+- [ ] **persona应该是首要的**

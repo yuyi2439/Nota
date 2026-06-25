@@ -14,11 +14,11 @@
 - [x] `pnpm dev` / `pnpm build` / `pnpm test` 脚本
 
 ### M1 Core daemon 服务端
-- [ ] HTTP server 监听 127.0.0.1:2349
-- [ ] REST 路由框架（session/persona/chat/plugins 管理）
-- [ ] WebSocket 服务端（session 订阅与流式推送）
-- [ ] SSE 端点（CLI 流式 / 第三方拓展）
-- [ ] 系统服务配置（daemon 后台运行）
+- [x] HTTP server 监听 127.0.0.1:2349
+- [x] REST 路由框架（用于session/persona/chat/plugins 管理）
+- [x] WebSocket 服务端（session 订阅与流式推送）
+- [x] SSE 端点（CLI 流式 / 第三方拓展）
+- [x] 系统服务配置（daemon 后台运行）
 
 ### M2 Session Manager
 - [ ] per-session sqlite 文件管理（创建路径 `~/.nota/sessions/<id>.sqlite`）
